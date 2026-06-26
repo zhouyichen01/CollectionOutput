@@ -1,0 +1,12 @@
+{
+    "tube_params": {
+        "tube_temperature": 22.0,
+        "mic1_to_sample_distance": 20.0,
+        "mic4_to_sample_distance": 21.0,
+        "mic4_sensitivity": 22.0,
+        "mic2_to_sample_distance": 23.0,
+        "sample_area": 233.2,
+        "tubu_inner_diameter": 25.0,
+        "mic3_to_sample_distance": 26.0
+    }
+}

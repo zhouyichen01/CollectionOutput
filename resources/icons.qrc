@@ -1,0 +1,15 @@
+<RCC>
+  <qresource>
+    <file>images/4mic同步校准_画板.png</file>
+    <file>images/4mic薄层_画板.png</file>
+    <file>images/dongyuan.png</file>
+    <file>images/folder.png</file>
+    <file>images/使用文档.png</file>
+    <file>images/保存.png</file>
+    <file>images/吸声.png</file>
+    <file>images/复位.png</file>
+    <file>images/恢复.png</file>
+    <file>images/手动.png</file>
+    <file>images/暂停.png</file>
+  </qresource>
+</RCC>
