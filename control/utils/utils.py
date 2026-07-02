@@ -87,6 +87,15 @@ def show_warning_message(msg: str, parent=None) -> None:
     """在主线程弹出警告提示框。"""
     QMessageBox.warning(parent, "警告", msg)
 
+def spl_warning(obj, spl_list, threshold=130):
+    msgs = []
+    for i, spl in enumerate(spl_list, start=1):
+        if spl > threshold:
+            msgs.append(f"麦克风{i}实际声压级 {spl:.2f} dB, 超过阈值 {threshold} dB，已饱和")
+    if msgs:
+        text = "\n".join(msgs)
+        QMessageBox.warning(obj, "警告", text)
+
 def generate_chirp_wrapper(info: dict, samplerate: int):
     return generate_chirp(
         duration=info["signal_time"],
@@ -653,3 +662,41 @@ def compute_fft(y, sr):
     Y = np.fft.rfft(y)  # 对信号进行实数快速傅里叶变换，返回正频率部分
     f = np.fft.rfftfreq(len(y), 1/sr)  # 计算对应的频率坐标
     return f, np.abs(Y)  # 返回频率和幅值谱
+
+def calculate_rms(signal: np.ndarray) -> float:
+    """
+    计算输入信号的均方根值 (RMS)
+    :param signal: numpy 数组类型的信号数据
+    :return: RMS 值（float）
+    """
+    if len(signal) == 0:
+        return 0.0
+    return np.sqrt(np.mean(np.square(signal)))
+
+def calculate_scale(real_spl: float, rms: float) -> float:
+    """
+    根据真实声压级 (SPL, 单位 dB SPL) 和信号的 RMS 计算缩放系数。
+    :param real_spl: 真实声压级，单位 dB SPL（如 94 dB）
+    :param rms: 当前信号的均方根值（RMS）
+    :return: 缩放系数
+    """
+    logger = LogManager.set_log_handler("计算缩放scale")
+    if rms == 0 or not np.isfinite(rms):
+        logger.error(f"RMS 值无效: {rms}")
+        return 0.0
+    p = 20e-6 * 10 ** (real_spl / 20)
+    scale = p / rms
+    return scale
+
+def resize_by_ui_with_screen(obj, ratio=0.8):
+    """
+    ratio: 屏幕可用区域的比例上限，例如 0.8 表示不超过 4/5
+    """
+    ui_w, ui_h = obj.width(), obj.height()
+
+    screen = QApplication.primaryScreen()
+    size = screen.availableGeometry()
+    max_w = int(size.width() * ratio)
+    max_h = int(size.height() * ratio)
+
+    obj.resize(min(ui_w, max_w), min(ui_h, max_h))
