@@ -453,7 +453,7 @@ class MicAdjustInterface(QDialog):
         utils.spl_warning(self, [real_spl1, real_spl2, real_spl3, real_spl4], 130)
 
         # 4) 保存 txt（保存的是 mic*_data 原始通道数据）
-        cal_dir = os.path.join(os.getcwd(), "！隔声校准")
+        cal_dir = os.path.join(os.getcwd(), "！校准")
         os.makedirs(cal_dir, exist_ok=True)
 
         mic1_txt = os.path.join(cal_dir, "MIC1.txt")
