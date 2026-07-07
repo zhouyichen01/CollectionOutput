@@ -1,7 +1,11 @@
+import csv
 import json
 import os
 import subprocess
 import sys
+import zipfile
+from datetime import datetime
+from xml.sax.saxutils import escape
 
 import numpy as np
 import sounddevice as sd
@@ -9,8 +13,8 @@ import pyqtgraph
 from PyQt5.QtCore import QFile, Qt, QTimer
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
-    QApplication, QDialog, QFrame, QGridLayout, QGraphicsScene, QGraphicsPixmapItem, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QVBoxLayout
+    QApplication, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QGraphicsScene, QGraphicsPixmapItem,
+    QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QVBoxLayout
 )
 from PyQt5.uic import loadUi
 from pyqtgraph import mkPen
@@ -39,6 +43,7 @@ class MainWindow(QMainWindow):
         self.output_voltage_window = None
         self.signal_info = None
         self.tube_params = None
+        self.last_output_data = None
 
         self.mic_binding = (0, 1, 2, 3)
         self.mic_deviation_db = (0, 0, 0, 0)
@@ -81,6 +86,7 @@ class MainWindow(QMainWindow):
         self.action_4.triggered.disconnect()
         self.action_4.triggered.connect(self.open_output_voltage_interface)
         self.contact_us_action.triggered.connect(self.show_contact_us)
+        self.save_output_action.triggered.connect(self.save_output)
         self.run_test_button.clicked.connect(self.run_test)
 
     def init_image(self):
@@ -290,6 +296,7 @@ class MainWindow(QMainWindow):
 
     def run_test(self):
         self.init_config()
+        self.last_output_data = None
         utils.set_run_button_enabled(self.run_test_button, False)
         self.test_state.setText("测试中...")
         QApplication.processEvents()
@@ -462,10 +469,281 @@ class MainWindow(QMainWindow):
 
         # 画最终 Pa 曲线（保持原信号）
         time_axis = np.linspace(0, duration, len(self.mic1_pa))
+        self.last_output_data = {
+            "time": time_axis,
+            "mic1_pa": self.mic1_pa,
+            "mic2_pa": self.mic2_pa,
+            "mic3_pa": self.mic3_pa,
+            "mic4_pa": self.mic4_pa,
+        }
         self.update_plot(time_axis, self.mic1_pa, self.mic2_pa, self.mic3_pa, self.mic4_pa)
 
         self.logger.info("采集完成，已更新时域图")
         self.test_state.setText("测试完成")
+
+    def save_output(self):
+        if not self.last_output_data:
+            QMessageBox.warning(self, "提示", "未进行测试")
+            return
+
+        output_format = self._show_save_output_dialog()
+        if not output_format:
+            return
+
+        save_base_path = self._get_output_save_path(output_format)
+        if not save_base_path:
+            return
+
+        save_paths = self._build_channel_save_paths(save_base_path, output_format)
+        if not self._confirm_output_save(save_paths, output_format):
+            return
+
+        try:
+            self._save_output_to_files(save_paths, output_format)
+        except Exception as e:
+            self.logger.exception("保存输出失败")
+            QMessageBox.critical(self, "保存失败", f"保存输出失败：{e}")
+            return
+
+        saved_files_text = "\n".join(save_paths)
+        self.logger.info(f"输出已保存: {saved_files_text}")
+        QMessageBox.information(self, "保存成功", f"输出已保存：\n{saved_files_text}")
+
+    def _show_save_output_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("保存输出")
+        dialog.setModal(True)
+        dialog.setMinimumWidth(320)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(22, 18, 22, 18)
+        layout.setSpacing(14)
+
+        label = QLabel("请选择保存类型：", dialog)
+        combo = QComboBox(dialog)
+        combo.addItem("TXT 文本 (*.txt)", "txt")
+        combo.addItem("CSV 表格 (*.csv)", "csv")
+        combo.addItem("Excel 工作簿 (*.xlsx)", "xlsx")
+        combo.setMinimumHeight(32)
+
+        button_layout = QHBoxLayout()
+        cancel_button = QPushButton("取消", dialog)
+        save_button = QPushButton("下一步", dialog)
+        cancel_button.clicked.connect(dialog.reject)
+        save_button.clicked.connect(dialog.accept)
+        button_layout.addStretch(1)
+        button_layout.addWidget(cancel_button)
+        button_layout.addWidget(save_button)
+
+        layout.addWidget(label)
+        layout.addWidget(combo)
+        layout.addLayout(button_layout)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        return combo.currentData()
+
+    def _get_output_save_path(self, output_format):
+        extensions = {
+            "txt": ".txt",
+            "csv": ".csv",
+            "xlsx": ".xlsx",
+        }
+        filters = {
+            "txt": "TXT 文本 (*.txt)",
+            "csv": "CSV 表格 (*.csv)",
+            "xlsx": "Excel 工作簿 (*.xlsx)",
+        }
+
+        extension = extensions[output_format]
+        base_name = datetime.now().strftime("采集输出_%Y%m%d_%H%M%S")
+        default_path = os.path.join(os.getcwd(), f"{base_name}{extension}")
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "选择保存位置和文件名前缀",
+            default_path,
+            filters[output_format],
+        )
+        if not save_path:
+            return None
+
+        current_extension = os.path.splitext(save_path)[1].lower()
+        if current_extension != extension:
+            if current_extension:
+                save_path = os.path.splitext(save_path)[0] + extension
+            else:
+                save_path = save_path + extension
+        return save_path
+
+    def _build_channel_save_paths(self, save_base_path, output_format):
+        extension = self._output_extension(output_format)
+        base_path, current_extension = os.path.splitext(save_base_path)
+        if current_extension.lower() != extension:
+            base_path = save_base_path
+        return [
+            f"{base_path}_{channel_name}{extension}"
+            for channel_name, _ in self._output_channels()
+        ]
+
+    def _confirm_output_save(self, save_paths, output_format):
+        format_names = {
+            "txt": "TXT 文本",
+            "csv": "CSV 表格",
+            "xlsx": "Excel 工作簿",
+        }
+        files_text = "\n".join(save_paths)
+        reply = QMessageBox.question(
+            self,
+            "确认保存",
+            f"保存类型：{format_names.get(output_format, output_format)}\n"
+            f"将生成 {len(save_paths)} 个文件：\n{files_text}\n\n确认保存吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        return reply == QMessageBox.Yes
+
+    def _save_output_to_files(self, save_paths, output_format):
+        for save_path, (channel_name, channel_data) in zip(save_paths, self._output_channels()):
+            if output_format == "txt":
+                self._write_delimited_output(save_path, "\t", channel_name, channel_data)
+            elif output_format == "csv":
+                self._write_delimited_output(save_path, ",", channel_name, channel_data)
+            elif output_format == "xlsx":
+                self._write_xlsx_output(save_path, channel_name, channel_data)
+            else:
+                raise ValueError(f"不支持的保存格式：{output_format}")
+
+    @staticmethod
+    def _output_extension(output_format):
+        extensions = {
+            "txt": ".txt",
+            "csv": ".csv",
+            "xlsx": ".xlsx",
+        }
+        return extensions[output_format]
+
+    def _output_channels(self):
+        return [
+            ("MIC1", self.last_output_data["mic1_pa"]),
+            ("MIC2", self.last_output_data["mic2_pa"]),
+            ("MIC3", self.last_output_data["mic3_pa"]),
+            ("MIC4", self.last_output_data["mic4_pa"]),
+        ]
+
+    def _output_headers(self, channel_name):
+        return ["Time(s)", f"{channel_name}(Pa)"]
+
+    def _output_matrix(self, channel_data):
+        return np.column_stack([
+            self.last_output_data["time"],
+            channel_data,
+        ])
+
+    def _write_delimited_output(self, save_path, delimiter, channel_name, channel_data):
+        with open(save_path, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f, delimiter=delimiter)
+            writer.writerow(self._output_headers(channel_name))
+            for row in self._output_matrix(channel_data):
+                writer.writerow([self._format_float(value) for value in row])
+
+    def _write_xlsx_output(self, save_path, channel_name, channel_data):
+        matrix = self._output_matrix(channel_data)
+        if matrix.shape[0] + 1 > 1048576:
+            raise ValueError("Excel 单个工作表最多支持 1048576 行，请改用 TXT 或 CSV 保存。")
+
+        with zipfile.ZipFile(save_path, "w", zipfile.ZIP_DEFLATED) as workbook:
+            workbook.writestr("[Content_Types].xml", self._xlsx_content_types())
+            workbook.writestr("_rels/.rels", self._xlsx_root_relationships())
+            workbook.writestr("xl/workbook.xml", self._xlsx_workbook(channel_name))
+            workbook.writestr("xl/_rels/workbook.xml.rels", self._xlsx_workbook_relationships())
+
+            with workbook.open("xl/worksheets/sheet1.xml", "w") as sheet:
+                sheet.write(
+                    b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                    b'<sheetData>'
+                )
+                sheet.write(self._xlsx_row_xml(1, self._output_headers(channel_name)).encode("utf-8"))
+                for row_index, row in enumerate(matrix, start=2):
+                    sheet.write(self._xlsx_row_xml(row_index, row).encode("utf-8"))
+                sheet.write(b"</sheetData></worksheet>")
+
+    @staticmethod
+    def _format_float(value):
+        value = float(value)
+        if not np.isfinite(value):
+            return ""
+        return f"{value:.12g}"
+
+    @staticmethod
+    def _xlsx_content_types():
+        return (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/worksheets/sheet1.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            '</Types>'
+        )
+
+    @staticmethod
+    def _xlsx_root_relationships():
+        return (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/>'
+            '</Relationships>'
+        )
+
+    @staticmethod
+    def _xlsx_workbook(sheet_name):
+        return (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f'<sheets><sheet name="{escape(sheet_name)}" sheetId="1" r:id="rId1"/></sheets>'
+            '</workbook>'
+        )
+
+    @staticmethod
+    def _xlsx_workbook_relationships():
+        return (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            'Target="worksheets/sheet1.xml"/>'
+            '</Relationships>'
+        )
+
+    def _xlsx_row_xml(self, row_index, values):
+        cells = []
+        for column_index, value in enumerate(values, start=1):
+            cells.append(self._xlsx_cell_xml(row_index, column_index, value))
+        return f'<row r="{row_index}">{"".join(cells)}</row>'
+
+    def _xlsx_cell_xml(self, row_index, column_index, value):
+        cell_ref = f"{self._xlsx_column_name(column_index)}{row_index}"
+        if isinstance(value, str):
+            return f'<c r="{cell_ref}" t="inlineStr"><is><t>{escape(value)}</t></is></c>'
+
+        formatted_value = self._format_float(value)
+        if formatted_value == "":
+            return f'<c r="{cell_ref}"/>'
+        return f'<c r="{cell_ref}"><v>{formatted_value}</v></c>'
+
+    @staticmethod
+    def _xlsx_column_name(column_index):
+        name = ""
+        while column_index:
+            column_index, remainder = divmod(column_index - 1, 26)
+            name = chr(65 + remainder) + name
+        return name
 
     def _load_mic_binding_indices(self):
         # 默认顺序
