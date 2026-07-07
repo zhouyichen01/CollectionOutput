@@ -8,7 +8,10 @@ import sounddevice as sd
 import pyqtgraph
 from PyQt5.QtCore import QFile, Qt, QTimer
 from PyQt5.QtGui import QIcon, QPixmap
-from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsPixmapItem, QMessageBox, QVBoxLayout
+from PyQt5.QtWidgets import (
+    QApplication, QDialog, QFrame, QGridLayout, QGraphicsScene, QGraphicsPixmapItem, QLabel, QMainWindow,
+    QMessageBox, QPushButton, QVBoxLayout
+)
 from PyQt5.uic import loadUi
 from pyqtgraph import mkPen
 
@@ -36,7 +39,6 @@ class MainWindow(QMainWindow):
         self.output_voltage_window = None
         self.signal_info = None
         self.tube_params = None
-        self.is_testing = False
 
         self.mic_binding = (0, 1, 2, 3)
         self.mic_deviation_db = (0, 0, 0, 0)
@@ -72,16 +74,13 @@ class MainWindow(QMainWindow):
     def init_fun(self):
         self.action_2.triggered.disconnect()
         self.action_2.triggered.connect(self.open_select_device_interface)
-        self.action.triggered.disconnect()
-        self.action.triggered.connect(self.open_imptube_params_setting_interface)
         self.action_3.triggered.disconnect()
         self.action_3.triggered.connect(self.open_output_signal_setting_interface)
         self.action_9.triggered.disconnect()
         self.action_9.triggered.connect(self.open_mic_adjust_interface)
         self.action_4.triggered.disconnect()
         self.action_4.triggered.connect(self.open_output_voltage_interface)
-        self.action_14.triggered.disconnect()
-        self.action_14.triggered.connect(self.popup_pdf)
+        self.contact_us_action.triggered.connect(self.show_contact_us)
         self.run_test_button.clicked.connect(self.run_test)
 
     def init_image(self):
@@ -190,6 +189,85 @@ class MainWindow(QMainWindow):
         self.output_voltage_window.raise_()
         self.output_voltage_window.activateWindow()
 
+    def show_contact_us(self):
+        dialog = QDialog(self)
+        dialog.setObjectName("contactDialog")
+        dialog.setWindowTitle("联系我们")
+        dialog.setModal(True)
+        dialog.setMinimumWidth(460)
+        dialog.setStyleSheet("""
+            QDialog#contactDialog {
+                background-color: rgb(240, 240, 240);
+            }
+            QLabel#contactTitle {
+                color: #1f2937;
+                font: bold 18pt "Microsoft YaHei";
+            }
+            QFrame#contactCard {
+                background-color: #ffffff;
+                border: 1px solid #d8e0ea;
+                border-radius: 8px;
+            }
+            QLabel#contactLabel {
+                color: #64748b;
+                font: bold 10pt "Microsoft YaHei";
+            }
+            QLabel#contactValue {
+                color: #111827;
+                font: 11pt "Microsoft YaHei";
+            }
+            QPushButton#contactCloseButton {
+                background-color: #0f6db6;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 24px;
+                font: bold 10pt "Microsoft YaHei";
+            }
+            QPushButton#contactCloseButton:hover {
+                background-color: #0b5f9f;
+            }
+        """)
+
+        main_layout = QVBoxLayout(dialog)
+        main_layout.setContentsMargins(28, 24, 28, 24)
+        main_layout.setSpacing(16)
+
+        title = QLabel("苏州东原电子", dialog)
+        title.setObjectName("contactTitle")
+        main_layout.addWidget(title)
+
+        card = QFrame(dialog)
+        card.setObjectName("contactCard")
+        grid = QGridLayout(card)
+        grid.setContentsMargins(22, 18, 22, 18)
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(12)
+
+        contact_items = [
+            ("联系人", "王庆"),
+            ("联系电话", "18362654625"),
+            ("联系地址", "江苏省苏州市相城区荣泰街活力大厦D座1407-1408室"),
+        ]
+        for row, (label_text, value_text) in enumerate(contact_items):
+            label = QLabel(label_text, card)
+            label.setObjectName("contactLabel")
+            value = QLabel(value_text, card)
+            value.setObjectName("contactValue")
+            value.setWordWrap(True)
+            grid.addWidget(label, row, 0, Qt.AlignTop)
+            grid.addWidget(value, row, 1)
+        grid.setColumnStretch(1, 1)
+        main_layout.addWidget(card)
+
+        close_button = QPushButton("关闭", dialog)
+        close_button.setObjectName("contactCloseButton")
+        close_button.setCursor(Qt.PointingHandCursor)
+        close_button.clicked.connect(dialog.accept)
+        main_layout.addWidget(close_button, 0, Qt.AlignRight)
+
+        dialog.exec_()
+
     def init_config(self):
         output_path = utils.get_config_path("output_signal_setting.json")
         try:
@@ -212,20 +290,19 @@ class MainWindow(QMainWindow):
 
     def run_test(self):
         self.init_config()
-        # 防止多个界面同时占用声卡
-        if not AudioSessionManager.acquire(self):
-            QMessageBox.warning(self, "提示", "音频设备正在被其它界面占用，请先停止/关闭其它录音功能。")
-            self.test_state.setText("音频被占用")
-            return
         utils.set_run_button_enabled(self.run_test_button, False)
         self.test_state.setText("测试中...")
         QApplication.processEvents()
         self.record_and_plot()
-        self.run_test_button.setEnabled(True)
-        # 启用按钮
-        utils.set_run_button_enabled(self.run_test_button, True)
 
     def record_and_plot(self):
+        # 防止多个界面同时占用声卡
+        if not AudioSessionManager.acquire(self):
+            QMessageBox.warning(self, "提示", "音频设备正在被其它界面占用，请先停止/关闭其它录音功能。")
+            self.test_state.setText("音频被占用")
+            utils.set_run_button_enabled(self.run_test_button, True)
+            return
+
         try:
             self.curve1.setData([], [])
             self.curve2.setData([], [])
@@ -338,6 +415,7 @@ class MainWindow(QMainWindow):
                 self.record_stage = 0
                 self.logger.exception("录音后处理失败")
                 self.test_state.setText(f"测试失败: {e}")
+            finally:
                 utils.set_run_button_enabled(self.run_test_button, True)
                 AudioSessionManager.release(self)
 

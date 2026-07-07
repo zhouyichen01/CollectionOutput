@@ -250,11 +250,7 @@ font: bold 12pt &quot;Microsoft YaHei&quot;;</string>
     <property name="title">
      <string>设置</string>
     </property>
-    <addaction name="separator"/>
-    <addaction name="action"/>
-    <addaction name="separator"/>
     <addaction name="action_3"/>
-    <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menu_2">
     <property name="title">
@@ -264,14 +260,6 @@ font: bold 12pt &quot;Microsoft YaHei&quot;;</string>
     <addaction name="action_9"/>
     <addaction name="separator"/>
     <addaction name="action_4"/>
-    <addaction name="separator"/>
-   </widget>
-   <widget class="QMenu" name="menu_5">
-    <property name="title">
-     <string>帮助</string>
-    </property>
-    <addaction name="separator"/>
-    <addaction name="action_14"/>
     <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menu_4">
@@ -285,13 +273,8 @@ font: bold 12pt &quot;Microsoft YaHei&quot;;</string>
    <addaction name="menu_4"/>
    <addaction name="menu"/>
    <addaction name="menu_2"/>
-   <addaction name="menu_5"/>
+   <addaction name="contact_us_action"/>
   </widget>
-  <action name="action">
-   <property name="text">
-    <string>阻抗管参数设置</string>
-   </property>
-  </action>
   <action name="action_3">
    <property name="text">
     <string>输出信号设置</string>
@@ -310,11 +293,6 @@ font: bold 12pt &quot;Microsoft YaHei&quot;;</string>
   <action name="action_9">
    <property name="text">
     <string>麦克风校准</string>
-   </property>
-  </action>
-  <action name="action_14">
-   <property name="text">
-    <string>帮助</string>
    </property>
   </action>
   <action name="cal_impedance_button">
@@ -340,6 +318,11 @@ font: bold 12pt &quot;Microsoft YaHei&quot;;</string>
   <action name="action_4">
    <property name="text">
     <string>输入/输出校准</string>
+   </property>
+  </action>
+  <action name="contact_us_action">
+   <property name="text">
+    <string>联系我们</string>
    </property>
   </action>
  </widget>
